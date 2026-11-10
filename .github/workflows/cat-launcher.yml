@@ -312,6 +312,22 @@ jobs:
             echo "Import adicionado em $F"
             grep -n 'import kotlinx.coroutines' "$F"
           fi
+      - name: Gerar Cargo.lock ausente (CatCore/rust)
+        run: |
+          set -u
+          export PATH="$HOME/.cargo/bin:$PATH"
+          while IFS= read -r t; do
+            d=$(dirname "$t")
+            [ -f "$d/Cargo.lock" ] && continue
+            grep -qE '^\[(package|workspace)\]' "$t" || continue
+            echo "Cargo.lock ausente em $d; gerando"
+            if command -v cargo >/dev/null 2>&1; then
+              (cd "$d" && cargo generate-lockfile) || echo "::warning::cargo generate-lockfile falhou em $d"
+            fi
+            # garante que o arquivo exista mesmo se a geração falhar
+            [ -f "$d/Cargo.lock" ] || : > "$d/Cargo.lock"
+            ls -l "$d/Cargo.lock"
+          done < <(find "$SRC_ROOT" -name Cargo.toml -not -path '*/target/*' -not -path '*/.git/*')
       - name: Compilar Debug
         if: env.BUILD_DEBUG == 'true'
         run: |
@@ -332,26 +348,4 @@ jobs:
           find "$P" -type f -name '*.apk' -path '*/build/outputs/apk/*' 2>/dev/null > /tmp/apklist.txt
           while read -r f; do
             [ -n "$f" ] || continue
-            name=$(basename "$f")
-            if [ "$ARCH" != "all" ]; then
-              case "$name" in
-                *"$ARCH"*|*universal*) ;;
-                *) continue ;;
-              esac
-            fi
-            cp "$f" "/tmp/apks/$name"
-          done < /tmp/apklist.txt
-          ls -lh /tmp/apks
-          for f in /tmp/apks/*.apk; do "$(ls -d $ANDROID_HOME/build-tools/*/ | tail -1)aapt2" dump badging "$f" | grep "^application:"; done
-          if [ -z "$(ls -A /tmp/apks 2>/dev/null)" ]; then
-            echo "::warning::Nenhum APK gerado."
-          fi
-          exit 0
-      - name: Publicar APKs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Cat Launcher
-          path: /tmp/apks/*.apk
-          if-no-files-found: warn
-          
+    
