@@ -171,7 +171,7 @@ jobs:
           cat > /tmp/gb.sh <<'S'
           cd "$PROJECT_DIR"
           e() { grep -E '^e: ' "$REPORT_DIR/build-$2.log" | head -15; grep -A14 -m1 "What went wrong" "$REPORT_DIR/build-$2.log" | head -16; }
-          f() { e "$@"; echo "::error title=Falha em $1::$(e "$@" | sed ':a;N;$!ba;s/\n/%0A/g')"; }
+          f() { e "$@"; echo "===== ULTIMAS 80 LINHAS DO LOG ====="; tail -n 80 "$REPORT_DIR/build-$2.log"; echo "::error title=Falha em $1::$(e "$@" | sed ':a;N;$!ba;s/\n/%0A/g')"; }
           for i in 1 2 3 4 5; do
             if ./gradlew "${APP_PATH}:$1" -I /tmp/oi.gradle --no-daemon -q --console=plain > "$REPORT_DIR/build-$2.log" 2>&1; then echo "Build $1 OK"; exit 0; fi
             c=0
@@ -247,7 +247,11 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
           sdkmanager "ndk;${NDK_VERSION}" 2>&1 | tee "$REPORT_DIR/ndk.log"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          # o runner já define ANDROID_NDK_ROOT com outro NDK; alinha todas as variáveis
+          for v in ANDROID_NDK_HOME ANDROID_NDK_ROOT ANDROID_NDK; do
+            echo "$v=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          done
+          ls -d "$ANDROID_HOME/ndk/${NDK_VERSION}" || { echo "::error::NDK ${NDK_VERSION} não foi instalado"; exit 1; }
       - name: Instalar Rust (se o projeto usar)
         if: env.HAS_RUST == 'true'
         run: |
@@ -337,15 +341,4 @@ jobs:
         if: env.BUILD_RELEASE == 'true'
         run: |
           cd "$PROJECT_DIR"
-          bash /tmp/gb.sh assembleRelease release
-      - name: Coletar APKs
-        if: always()
-        run: |
-          set +e +o pipefail
-          mkdir -p /tmp/apks
-          P="$PROJECT_DIR"
-          if [ -z "$P" ]; then P=.; fi
-          find "$P" -type f -name '*.apk' -path '*/build/outputs/apk/*' 2>/dev/null > /tmp/apklist.txt
-          while read -r f; do
-            [ -n "$f" ] || continue
-    
+          bash /tmp/gb.sh assembleRelease rel
