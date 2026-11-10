@@ -48,16 +48,11 @@ jobs:
           mkdir -p "$REPORT_DIR" "$SRC_ROOT"
           : > "$REPORT_DIR/problems.txt"
           : > "$REPORT_DIR/fixed.txt"
-      - name: Listar arquivos do repositório (diagnóstico)
-        run: |
-          ls -la "$GITHUB_WORKSPACE"
-          find "$GITHUB_WORKSPACE" -iname 'Cat__*.bin' -not -path '*/.git/*' | sort -V
       - name: "Verificação 1/4 - juntar Cat__NN.bin, extrair e testar"
         run: |
           set -uo pipefail
           PARTS_EXPECTED=22    # quantidade de arquivos Cat__NN.bin
           : > "$REPORT_DIR/zips.txt"
-          # aceita Cat__01.bin, Cat__02.bin ... ordenando pelo número
           mapfile -t parts < <(
             find "$GITHUB_WORKSPACE" -type f -iregex '.*/Cat__[0-9]+\.bin' -not -path '*/.git/*' 2>/dev/null \
               | sed -E 's#.*/Cat__0*([0-9]+)\.bin$#\1\t&#I' | sort -n | cut -f2-
@@ -77,10 +72,7 @@ jobs:
             echo "::error::ehsb.zip montado está inválido (confira as partes)"
             exit 1
           fi
-          # o ehsb.zip contém Cat1.zip ... Cat17.zip
           mkdir -p /tmp/cats && unzip -oq /tmp/ehsb.zip -d /tmp/cats
-          echo "Conteúdo extraído do ehsb.zip:"
-          find /tmp/cats -maxdepth 3 | head -80
           mapfile -t inner < <(find /tmp/cats -type f -iname '*.zip' | sort -V)
           total=${#inner[@]}
           ok=0
@@ -92,10 +84,8 @@ jobs:
                 echo "::error::$f corrompido"
               fi
             done
-            echo "ZIPs internos: $total (ok: $ok)"
             [ "$ok" -eq "$total" ] || { echo "::error::Nem todos os zips internos passaram na verificação."; exit 1; }
           else
-            echo "Nenhum zip interno: o ehsb.zip já contém o código; será usado direto."
             echo "DIRECT_SRC=1" >> "$GITHUB_ENV"
           fi
       - name: "Verificação 2/4 - extrair para estrutura organizada e detectar conflitos"
@@ -105,17 +95,13 @@ jobs:
             cp -a /tmp/cats/. "$SRC_ROOT"/
           fi
           while IFS= read -r z; do
-            echo "Extraindo $z"
             unzip -oq "$z" -d "$SRC_ROOT" || echo "::error::Falha ao extrair $z"
           done < "$REPORT_DIR/zips.txt"
-          # se tudo veio dentro de uma única pasta raiz, sobe um nível
           n=$(find "$SRC_ROOT" -mindepth 1 -maxdepth 1 | wc -l)
           if [ "$n" -eq 1 ] && [ -d "$(find "$SRC_ROOT" -mindepth 1 -maxdepth 1)" ]; then
             d=$(find "$SRC_ROOT" -mindepth 1 -maxdepth 1)
-            echo "Subindo conteúdo de $d"
             shopt -s dotglob; mv "$d"/* "$SRC_ROOT"/; rmdir "$d"
           fi
-          echo "Conteúdo de $SRC_ROOT:"; ls -la "$SRC_ROOT" | head -60
       - name: "Completar arquivos faltantes a partir do repositório original"
         run: |
           set -eu
@@ -134,20 +120,6 @@ jobs:
             fi
             if [ -f "$SRC_ROOT/gradlew" ]; then chmod +x "$SRC_ROOT/gradlew"; fi
           fi
-          added=0
-          for m in ZalithLauncher Guide InputMap ColorPicker CardGrid LayerController Terracotta PetLib; do
-            U="/tmp/upstream/$m/src/main/res"
-            D="$SRC_ROOT/$m/src/main/res"
-            if [ ! -d "$U" ] || [ ! -d "$SRC_ROOT/$m" ]; then continue; fi
-            while IFS= read -r f; do
-              if [ ! -e "$D/$f" ]; then
-                mkdir -p "$(dirname "$D/$f")"
-                cp "$U/$f" "$D/$f"
-                echo "Recurso completado: $m/src/main/res/$f"
-                added=$((added+1))
-              fi
-            done < <(cd "$U" && find . -type f | sed 's|^\./||')
-          done
       - name: "Verificação 3/4 - identificar a estrutura real do projeto Android"
         run: |
           base64 -d <<'B64' | gunzip | python3 -
@@ -224,7 +196,6 @@ jobs:
             cat "$W"/jre-25-universal.tar.xz.part* > "$A/jre-25/universal.tar.xz"
           fi
           xz -t "$A/jre-21/universal.tar.xz" "$A/jre-25/universal.tar.xz"
-          ls -l "$A/jre-21" "$A/jre-25"
       - name: Instalar JDKs necessários
         uses: actions/setup-java@v4
         with:
@@ -234,10 +205,6 @@ jobs:
         run: |
           export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           B="$ANDROID_HOME/cmdline-tools/latest/bin"
-          if [ ! -x "$B/sdkmanager" ]; then
-            curl -fsSL -o /tmp/ct.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-            unzip -q /tmp/ct.zip -d /tmp/ct && mkdir -p "$ANDROID_HOME/cmdline-tools" && mv /tmp/ct/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
-          fi
           echo "$B" >> "$GITHUB_PATH"
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
@@ -247,18 +214,9 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
           sdkmanager "ndk;${NDK_VERSION}" 2>&1 | tee "$REPORT_DIR/ndk.log"
-          # o runner já define ANDROID_NDK_ROOT com outro NDK; alinha todas as variáveis
           for v in ANDROID_NDK_HOME ANDROID_NDK_ROOT ANDROID_NDK; do
             echo "$v=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
           done
-          ls -d "$ANDROID_HOME/ndk/${NDK_VERSION}" || { echo "::error::NDK ${NDK_VERSION} não foi instalado"; exit 1; }
-      - name: Instalar Rust (se o projeto usar)
-        if: env.HAS_RUST == 'true'
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
-          cargo install cargo-ndk --locked 2>&1 | tail -n 5
       - name: Configurar Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Decidir tipos de build
@@ -291,7 +249,7 @@ jobs:
            r=b"".join(b"\0"+b"".join(G[y*16//s][x*16//s] for x in range(s)) for y in range(s))
            return b"\x89PNG\r\n\x1a\n"+w(b"IHDR",struct.pack(">IIBBBBB",s,s,8,2,0,0,0))+w(b"IDAT",zlib.compress(r))+w(b"IEND",b"")
           P=os.environ["PROJECT_DIR"]+"/**/src/*/res/"
-          for f in glob.glob(P+"mipmap-*/ic_launcher*",recursive=True)+glob.glob(P+"drawable*/ic_launcher_foreground.*",recursive=True): os.remove(f); print("removido",f)
+          for f in glob.glob(P+"mipmap-*/ic_launcher*",recursive=True)+glob.glob(P+"drawable*/ic_launcher_foreground.*",recursive=True): os.remove(f)
           os.makedirs(R+"drawable-nodpi",exist_ok=True); open(R+"drawable-nodpi/ic_launcher_foreground.png","wb").write(png(192))
           for d,s in dict(mdpi=48,hdpi=72,xhdpi=96,xxhdpi=144,xxxhdpi=192).items():
            os.makedirs(R+"mipmap-"+d,exist_ok=True)
@@ -313,29 +271,60 @@ jobs:
           F=$(find "$SRC_ROOT" -type f -name FastStartupLoader.kt | head -1)
           if [ -n "$F" ] && ! grep -q '^import kotlinx.coroutines.cancel$' "$F"; then
             sed -i '0,/^import /s//import kotlinx.coroutines.cancel\nimport /' "$F"
-            echo "Import adicionado em $F"
-            grep -n 'import kotlinx.coroutines' "$F"
           fi
-      - name: Garantir targets Rust do Android e cargo-ndk
+      - name: Preparar Rust (targets, cargo-ndk, Cargo.lock)
         run: |
-          set -u
           export PATH="$HOME/.cargo/bin:$PATH"
-          if [ -z "$(find "$SRC_ROOT" -name Cargo.toml -not -path '*/target/*' | head -1)" ]; then
-            echo "Sem Cargo.toml; nada a fazer."; exit 0
-          fi
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          T=$(find "$SRC_ROOT" -name Cargo.toml -not -path '*/target/*')
+          [ -n "$T" ] || exit 0
           rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
-          command -v cargo-ndk >/dev/null 2>&1 || cargo install cargo-ndk --locked 2>&1 | tail -n 5
-          rustup target list --installed
-      - name: Gerar Cargo.lock ausente (CatCore/rust)
-        run: |
-          set -u
-          export PATH="$HOME/.cargo/bin:$PATH"
-          while IFS= read -r t; do
+          command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked 2>&1 | tail -n 3
+          for t in $T; do
             d=$(dirname "$t")
             [ -f "$d/Cargo.lock" ] && continue
             grep -qE '^\[(package|workspace)\]' "$t" || continue
-            echo "Cargo.lock ausente em $d; gerando"
-            if command -v cargo >/dev/null 2>&1; then
-              (cd "$d" && cargo generate-lockf
+            (cd "$d" && cargo generate-lockfile) || :
+            [ -f "$d/Cargo.lock" ] || : > "$d/Cargo.lock"
+          done
+      - name: Compilar Debug
+        if: env.BUILD_DEBUG == 'true'
+        run: |
+          cd "$PROJECT_DIR"
+          bash /tmp/gb.sh assembleDebug debug
+      - name: Compilar Release
+        if: env.BUILD_RELEASE == 'true'
+        run: |
+          cd "$PROJECT_DIR"
+          bash /tmp/gb.sh assembleRelease release
+      - name: Coletar APKs
+        if: always()
+        run: |
+          set +e +o pipefail
+          mkdir -p /tmp/apks
+          P="$PROJECT_DIR"
+          if [ -z "$P" ]; then P=.; fi
+          find "$P" -type f -name '*.apk' -path '*/build/outputs/apk/*' 2>/dev/null > /tmp/apklist.txt
+          while read -r f; do
+            [ -n "$f" ] || continue
+            name=$(basename "$f")
+            if [ "$ARCH" != "all" ]; then
+              case "$name" in
+                *"$ARCH"*|*universal*) ;;
+                *) continue ;;
+              esac
+            fi
+            cp "$f" "/tmp/apks/$name"
+          done < /tmp/apklist.txt
+          ls -lh /tmp/apks
+          if [ -z "$(ls -A /tmp/apks 2>/dev/null)" ]; then
+            echo "::warning::Nenhum APK gerado."
+          fi
+          exit 0
+      - name: Publicar APKs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cat Launcher
+          path: /tmp/apks/*.apk
+          if-no-files-found: warn
+          
