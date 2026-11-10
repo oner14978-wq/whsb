@@ -143,7 +143,7 @@ jobs:
           cat > /tmp/gb.sh <<'S'
           cd "$PROJECT_DIR"
           e() { grep -E '^e: ' "$REPORT_DIR/build-$2.log" | head -15; grep -A14 -m1 "What went wrong" "$REPORT_DIR/build-$2.log" | head -16; }
-          f() { e "$@"; echo "===== ULTIMAS 80 LINHAS DO LOG ====="; tail -n 80 "$REPORT_DIR/build-$2.log"; echo "::error title=Falha em $1::$(e "$@" | sed ':a;N;$!ba;s/\n/%0A/g')"; }
+          f() { e "$@"; echo "===== ULTIMAS 80 LINHAS DO LOG ====="; grep -vE '^ +(Compiling|Downloaded|Downloading) ' "$REPORT_DIR/build-$2.log" | tail -n 80; echo "::error title=Falha em $1::$(e "$@" | sed ':a;N;$!ba;s/\n/%0A/g')"; }
           for i in 1 2 3 4 5; do
             if ./gradlew "${APP_PATH}:$1" -I /tmp/oi.gradle --no-daemon -q --console=plain > "$REPORT_DIR/build-$2.log" 2>&1; then echo "Build $1 OK"; exit 0; fi
             c=0
@@ -286,6 +286,11 @@ jobs:
             (cd "$d" && cargo generate-lockfile) || :
             [ -f "$d/Cargo.lock" ] || : > "$d/Cargo.lock"
           done
+          J=$(find "$SRC_ROOT" -name jni_bridge.rs | head -1)
+          if [ -n "$J" ] && ! grep -q "use<'a, 'l, 'o>" "$J"; then
+            sed -i "s/) -> impl FnMut(&str) -> bool + 'a {/) -> impl FnMut(\&str) -> bool + 'a + use<'a, 'l, 'o> {/" "$J"
+            grep -n "use<'a" "$J"
+          fi
       - name: Compilar Debug
         if: env.BUILD_DEBUG == 'true'
         run: |
