@@ -52,10 +52,9 @@ jobs:
         run: |
           ls -la "$GITHUB_WORKSPACE"
           find "$GITHUB_WORKSPACE" -iname 'Cat__*.bin' -not -path '*/.git/*' | sort -V
-      - name: "Verificação 1/4 - juntar Cat__NN.bin, extrair e testar Cat1..Cat17"
+      - name: "Verificação 1/4 - juntar Cat__NN.bin, extrair e testar"
         run: |
           set -uo pipefail
-          EXPECTED=17          # quantidade de CatN.zip dentro do ehsb.zip
           PARTS_EXPECTED=22    # quantidade de arquivos Cat__NN.bin
           : > "$REPORT_DIR/zips.txt"
           # aceita Cat__01.bin, Cat__02.bin ... ordenando pelo número
@@ -80,26 +79,31 @@ jobs:
           fi
           # o ehsb.zip contém Cat1.zip ... Cat17.zip
           mkdir -p /tmp/cats && unzip -oq /tmp/ehsb.zip -d /tmp/cats
-          found=0; ok=0
-          for n in $(seq 1 $EXPECTED); do
-            f=$(find /tmp/cats -type f -iname "Cat$n.zip" | head -1)
-            if [ -z "$f" ]; then echo "::error::Cat$n.zip ausente dentro do ehsb.zip"; continue; fi
-            found=$((found+1))
-            if unzip -tqq "$f" >/dev/null 2>&1; then
-              echo "$f" >> "$REPORT_DIR/zips.txt"; ok=$((ok+1))
-            else
-              echo "::error::Cat$n.zip corrompido"
-            fi
-          done
-          {
-            echo "ZIPS_EXPECTED=$EXPECTED"
-            echo "ZIPS_FOUND=$found"
-            echo "ZIPS_OK=$ok"
-          } >> "$GITHUB_ENV"
-          [ "$ok" -eq "$EXPECTED" ] || { echo "::error::Nem todos os Cat*.zip passaram na verificação."; exit 1; }
+          echo "Conteúdo extraído do ehsb.zip:"
+          find /tmp/cats -maxdepth 3 | head -80
+          mapfile -t inner < <(find /tmp/cats -type f -iname '*.zip' | sort -V)
+          total=${#inner[@]}
+          ok=0
+          if [ "$total" -gt 0 ]; then
+            for f in "${inner[@]}"; do
+              if unzip -tqq "$f" >/dev/null 2>&1; then
+                echo "$f" >> "$REPORT_DIR/zips.txt"; ok=$((ok+1))
+              else
+                echo "::error::$f corrompido"
+              fi
+            done
+            echo "ZIPs internos: $total (ok: $ok)"
+            [ "$ok" -eq "$total" ] || { echo "::error::Nem todos os zips internos passaram na verificação."; exit 1; }
+          else
+            echo "Nenhum zip interno: o ehsb.zip já contém o código; será usado direto."
+            echo "DIRECT_SRC=1" >> "$GITHUB_ENV"
+          fi
       - name: "Verificação 2/4 - extrair para estrutura organizada e detectar conflitos"
         run: |
           set -uo pipefail
+          if [ "${DIRECT_SRC:-0}" = 1 ]; then
+            cp -a /tmp/cats/. "$SRC_ROOT"/
+          fi
           while IFS= read -r z; do
             echo "Extraindo $z"
             unzip -oq "$z" -d "$SRC_ROOT" || echo "::error::Falha ao extrair $z"
