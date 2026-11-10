@@ -55,7 +55,8 @@ jobs:
       - name: "Verificação 1/4 - juntar Cat__NN.bin, extrair e testar Cat1..Cat17"
         run: |
           set -uo pipefail
-          EXPECTED=17
+          EXPECTED=17          # quantidade de CatN.zip dentro do ehsb.zip
+          PARTS_EXPECTED=22    # quantidade de arquivos Cat__NN.bin
           : > "$REPORT_DIR/zips.txt"
           # aceita Cat__01.bin, Cat__02.bin ... ordenando pelo número
           mapfile -t parts < <(
@@ -65,8 +66,8 @@ jobs:
           found=${#parts[@]}
           echo "Partes encontradas: $found"
           printf '%s\n' "${parts[@]}"
-          if [ "$found" -ne "$EXPECTED" ]; then
-            echo "::error::Esperava $EXPECTED partes (Cat__NN.bin), encontrei $found"
+          if [ "$found" -ne "$PARTS_EXPECTED" ]; then
+            echo "::error::Esperava $PARTS_EXPECTED partes (Cat__NN.bin), encontrei $found"
             exit 1
           fi
           for p in "${parts[@]}"; do
