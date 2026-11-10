@@ -316,6 +316,18 @@ jobs:
             echo "Import adicionado em $F"
             grep -n 'import kotlinx.coroutines' "$F"
           fi
+      - name: Garantir targets Rust do Android e cargo-ndk
+        run: |
+          set -u
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if [ -z "$(find "$SRC_ROOT" -name Cargo.toml -not -path '*/target/*' | head -1)" ]; then
+            echo "Sem Cargo.toml; nada a fazer."; exit 0
+          fi
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          command -v cargo-ndk >/dev/null 2>&1 || cargo install cargo-ndk --locked 2>&1 | tail -n 5
+          rustup target list --installed
       - name: Gerar Cargo.lock ausente (CatCore/rust)
         run: |
           set -u
@@ -326,19 +338,4 @@ jobs:
             grep -qE '^\[(package|workspace)\]' "$t" || continue
             echo "Cargo.lock ausente em $d; gerando"
             if command -v cargo >/dev/null 2>&1; then
-              (cd "$d" && cargo generate-lockfile) || echo "::warning::cargo generate-lockfile falhou em $d"
-            fi
-            # garante que o arquivo exista mesmo se a geração falhar
-            [ -f "$d/Cargo.lock" ] || : > "$d/Cargo.lock"
-            ls -l "$d/Cargo.lock"
-          done < <(find "$SRC_ROOT" -name Cargo.toml -not -path '*/target/*' -not -path '*/.git/*')
-      - name: Compilar Debug
-        if: env.BUILD_DEBUG == 'true'
-        run: |
-          cd "$PROJECT_DIR"
-          bash /tmp/gb.sh assembleDebug debug
-      - name: Compilar Release
-        if: env.BUILD_RELEASE == 'true'
-        run: |
-          cd "$PROJECT_DIR"
-          bash /tmp/gb.sh assembleRelease rel
+              (cd "$d" && cargo generate-lockf
