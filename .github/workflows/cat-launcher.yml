@@ -51,22 +51,22 @@ jobs:
       - name: Listar arquivos do repositório (diagnóstico)
         run: |
           ls -la "$GITHUB_WORKSPACE"
-          find "$GITHUB_WORKSPACE" -iname 'ehsb.zip*' -not -path '*/.git/*' | sort -V
-      - name: "Verificação 1/4 - juntar ehsb.zip.NN / ehsb.zip.tNN, extrair e testar Cat1..Cat17"
+          find "$GITHUB_WORKSPACE" -iname 'Cat__*.bin' -not -path '*/.git/*' | sort -V
+      - name: "Verificação 1/4 - juntar Cat__NN.bin, extrair e testar Cat1..Cat17"
         run: |
           set -uo pipefail
           EXPECTED=17
           : > "$REPORT_DIR/zips.txt"
-          # aceita ehsb.zip.04 e ehsb.zip.t01 (com ou sem o "t"), ordenando pelo número
+          # aceita Cat__01.bin, Cat__02.bin ... ordenando pelo número
           mapfile -t parts < <(
-            find "$GITHUB_WORKSPACE" -type f -iregex '.*/ehsb\.zip\.t?[0-9]+' -not -path '*/.git/*' 2>/dev/null \
-              | awk -F. '{ n=$NF; sub(/^[tT]/,"",n); print n+0 "\t" $0 }' | sort -n | cut -f2-
+            find "$GITHUB_WORKSPACE" -type f -iregex '.*/Cat__[0-9]+\.bin' -not -path '*/.git/*' 2>/dev/null \
+              | sed -E 's#.*/Cat__0*([0-9]+)\.bin$#\1\t&#I' | sort -n | cut -f2-
           )
           found=${#parts[@]}
           echo "Partes encontradas: $found"
           printf '%s\n' "${parts[@]}"
           if [ "$found" -ne "$EXPECTED" ]; then
-            echo "::error::Esperava $EXPECTED partes do ehsb.zip, encontrei $found"
+            echo "::error::Esperava $EXPECTED partes (Cat__NN.bin), encontrei $found"
             exit 1
           fi
           for p in "${parts[@]}"; do
@@ -349,5 +349,4 @@ jobs:
           name: Cat Launcher
           path: /tmp/apks/*.apk
           if-no-files-found: warn
-
           
